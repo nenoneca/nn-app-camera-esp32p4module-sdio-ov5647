@@ -1,0 +1,3 @@
+[submodule "nn-app-media"]
+	path = nn-app-media
+	url = https://github.com/nenoneca/nn-app-media.git

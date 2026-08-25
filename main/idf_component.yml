@@ -1,0 +1,28 @@
+## Managed components for nn-app-camera-esp32p4module-sdio-imx708 (ESP32-P4 host).
+## esp_hosted + esp_wifi_remote: the P4 host drives the C6 Wi-Fi radio remotely
+##   over esp-hosted SDIO (C6 runs the esp-hosted SDIO slave), giving the P4 the
+##   full esp_wifi API.  Same stack as nn-app-media; only the transport (SDIO on
+##   the P4-Function-EV-Board vs SPI-HD on the bench) differs.
+dependencies:
+  ## esp_audio_codec 2.6.0 added AAC/Opus/LC3 assembly that REQUIRES ESP32-P4
+  ## silicon rev >= 3.0; our P4 is pre-3.0, so 2.6.0 panics on the first AAC
+  ## frame.  Pin to the last pre-assembly release.
+  espressif/esp_audio_codec: "==2.5.0"
+  espressif/esp_serial_slave_link: "^1.0.1"
+  ## HW H.264 encoder stays 1.0.4: it emits a non-conformant CAVLC bitstream
+  ## (ffmpeg greens mid-P-frame: "cbp too large"/"total_coeff=-1"), but the fix
+  ## (esp_h264 1.1.0) HARD-REQUIRES IDF 5.3 and our esp-hosted stack is on IDF
+  ## 6.0.1 — 1.1.0 refuses to build here.  So WebRTC/HLS must keep the WAVE5
+  ## re-encode until the whole stack can move to a compatible IDF.
+  espressif/esp_hosted:
+    rules:
+    - if: target in [esp32p4]
+    # MUST match the C6 esp-hosted SLAVE firmware version (a host/slave version
+    # mismatch hangs the transport at "transport rx not yet up").  2.12.9 is the
+    # version the C6 SDIO slave is built at.
+    version: '==2.12.9'
+  espressif/esp_wifi_remote:
+    rules:
+    - if: target in [esp32p4]
+    - if: idf_version <6.1
+    version: '>=1.3.1'

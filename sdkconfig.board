@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: Apache-2.0
+# Board layer: Waveshare ESP32-P4-Module-DEV-KIT (pre-3.0 silicon, rev v1.3)
+# + OmniVision OV5647 (5 MP, Raspberry Pi Camera v1.3 class module).
+# Layered LAST so it overrides nn-app-media's shared defaults (which select
+# the IMX708 and assume production v3.1 silicon).
+#
+# This file is the UNION of two proven layers:
+#   silicon  — nn-app-camera-esp32p4module-sdio-imx708/sdkconfig.board
+#              (same DEV-KIT, hardware-validated as cam1)
+#   sensor   — nn-app-camera-esp32p4-wifi6-sdio-ov5647/sdkconfig.board
+#              (same OV5647 arrangement, build-verified)
+
+# ── Pre-3.0 silicon (rev v1.3) ──────────────────────────────────────────────
+# The shared defaults leave ESP32P4_SELECTS_REV_LESS_V3 unset for v3.1 parts;
+# this module refuses such images ("requires chip revision in range
+# [v3.01 - v3.99]").
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_100=y
+# SPIRAM_SPEED_250M depends on !REV_LESS_V3; state the fallback explicitly —
+# the module enumerates at exactly 200 MHz.
+CONFIG_SPIRAM_SPEED_200M=y
+# esp-hosted MUST live in PSRAM on this board: in internal RAM its init
+# consumed ~437 KB before the scheduler ran and the IDLE task allocation
+# failed (reboot loop on vApplicationGetIdleTaskMemory).
+CONFIG_ESP_HOSTED_DFLT_TASK_FROM_SPIRAM=y
+CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM=y
+# Known v1.3 limitations (informational): ISP BLC unavailable ("BLC is not
+# supported on ESP32P4 chips prior than v3.0" — esp_video continues without),
+# CPU tops out at 360 MHz.
+
+# ── Sensor: OV5647 instead of the shared default IMX708 ─────────────────────
+# CONFIG_CAMERA_IMX708 is not set
+CONFIG_CAMERA_OV5647=y
+CONFIG_CAMERA_OV5647_AUTO_DETECT_MIPI_INTERFACE_SENSOR=y
+# Native 1080p30 RAW10 — inside the P4 ISP's 1920-px line-buffer limit and the
+# encoder's 1920 max, so NO sensor crop and NO PPA scale.
+CONFIG_CAMERA_OV5647_MIPI_RAW10_1920X1080_30FPS=y
+
+# ── nn_camera geometry: capture 1920x1080, ENCODE 1920x1072 ─────────────────
+# 1080 is not macroblock-aligned (1080/16 = 67.5): the P4 encoder codes such
+# heights non-conformantly and software decoders reject the stream
+# ("decode_slice_header error" storms in the hub's HLS re-encode branch, HLS
+# starves and buffers).  This is the same P4 trait recorded on the beagle
+# ("P4 HW H.264 breaks software decoders; 1296/800 clean" — both 16-aligned).
+# Crop 8 rows via the PPA (the proven crop-only path) to 1072 = 16x67.
+CONFIG_NN_CAMERA_CAP_HRES=1920
+CONFIG_NN_CAMERA_CAP_VRES=1080
+CONFIG_NN_CAMERA_HRES=1920
+CONFIG_NN_CAMERA_VRES=1072
+
+# ── Colour: NEUTRAL until tuned on hardware ─────────────────────────────────
+# nn_camera's CCM_BASE for the OV5647 is identity (no calibrated matrix yet),
+# so WB starts at unity; trim live with `isp wb <r> <b>`.
+CONFIG_NN_CAMERA_WB_R_MILLI=1000
+CONFIG_NN_CAMERA_WB_B_MILLI=1000
+
+# ── Fixed-focus module: no VCM, no autofocus ────────────────────────────────
+# The RPi-v1.3-class OV5647 module has no focus motor.  With the motor
+# controller on, the DW9714 probe fails noisily at boot; worse, the sensor's
+# default IPA json carries an "af" section and esp_ipa_af_init ASSERTS on the
+# missing focus_info — an instant boot loop.  Both off: no probe, no AF module
+# linked, the json's af section has nothing to instantiate.
+# CONFIG_ESP_VIDEO_ENABLE_CAMERA_MOTOR_CONTROLLER is not set
+# CONFIG_CAM_MOTOR_DW9714 is not set
+# CONFIG_ESP_IPA_AF_ALGORITHM is not set
+# The sensor's default IPA json carries an "af" section, which (with the AF
+# module unlinked above) makes the IPA pipeline refuse to start: "failed to
+# detect IPA name=esp_ipa_af".  Select this board's json instead — the default
+# minus "af" (adn/aen/ian/acc kept).  Path is project-relative.
+CONFIG_CAMERA_OV5647_CUSTOMIZED_IPA_JSON_CONFIGURATION_FILE=y
+CONFIG_CAMERA_OV5647_CUSTOMIZED_IPA_JSON_CONFIGURATION_FILE_PATH="ov5647_fixed_focus.json"
+
+# ── console on USB-Serial-JTAG ──────────────────────────────────────────────
+# This board does not bring UART0 out to its USB bridge, so the app's REPL was
+# unreachable — and with it `cam info`, the one command that names the DETECTED
+# sensor, exactly when the camera fails to start.  cam0's EV board exposes
+# UART0 and talks; this one was silent for that reason alone.  Route the
+# console to the USB-Serial-JTAG that is already cabled.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_UART_DEFAULT=n
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
